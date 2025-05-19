@@ -8,7 +8,14 @@ from fpdf import FPDF
 # --- Configuración Supabase desde secrets ---
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+import asyncio
+from supabase import create_client, Client
+
+@st.cache_resource
+def init_supabase():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase: Client = init_supabase()
 
 # Lista fija de SSR
 lista_ssr = [
