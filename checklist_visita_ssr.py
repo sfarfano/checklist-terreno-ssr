@@ -262,12 +262,20 @@ def eliminar_registro(reg_id):
 def actualizar_registro(reg_id, data):
     httpx.patch(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{reg_id}", headers=HEADERS, json=data)
 
+# Persistencia global SSR seleccionado
+if "ssr_revision" not in st.session_state:
+    st.session_state.ssr_revision = ""
+if "ssr_edicion" not in st.session_state:
+    st.session_state.ssr_edicion = ""
+if "ssr_registro" not in st.session_state:
+    st.session_state.ssr_registro = ""
+
 # --- Registro ---
 if menu == "Registro de Checklist":
     st.title("✅ Registro de Checklist de Terreno")
-    nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", ["Selecciona un SSR..."] + lista_ssr)
+    nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", ["Selecciona un SSR..."] + lista_ssr, key="ssr_registro")
     if nombre_ssr != "Selecciona un SSR...":
-        respuestas = {f"item_{i+1}": st.checkbox(item) for i, item in enumerate(checklist_items)}
+        respuestas = {f"item_{i+1}": st.checkbox(item, key=f"reg_{i}") for i, item in enumerate(checklist_items)}
         if st.button("Guardar Registro"):
             nuevo = {"fecha": datetime.now().isoformat(), "nombre_ssr": nombre_ssr}
             nuevo.update(respuestas)
@@ -291,7 +299,9 @@ elif menu == "Revisión de Avance":
         resumen["% Completado"] = resumen.mean(axis=1) * 100
         st.subheader("Resumen por SSR")
         st.dataframe(resumen[["% Completado"]].sort_values("% Completado", ascending=False))
-        ssr_sel = st.selectbox("Ver detalle de un SSR", df["nombre_ssr"].unique())
+
+        ssr_sel = st.selectbox("Ver detalle de un SSR", df["nombre_ssr"].unique(), key="ssr_revision")
+
         if ssr_sel:
             st.subheader(f"Detalle Checklist: {ssr_sel}")
             fila = df[df["nombre_ssr"] == ssr_sel].iloc[-1]
@@ -306,7 +316,8 @@ elif menu == "Editar o Eliminar Registro":
         st.warning("No hay registros aún.")
     else:
         df = pd.DataFrame(registros)
-        ssr_edit = st.selectbox("Selecciona un SSR", df["nombre_ssr"].unique())
+
+        ssr_edit = st.selectbox("Selecciona un SSR", df["nombre_ssr"].unique(), key="ssr_edicion")
         registros = df[df["nombre_ssr"] == ssr_edit]
         if not registros.empty:
             ultimo = registros.iloc[-1]
