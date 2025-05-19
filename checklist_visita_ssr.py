@@ -249,7 +249,8 @@ menu = st.sidebar.selectbox("Menú", ["Registro de Checklist", "Revisión de Ava
 
 # --- Funciones REST ---
 def insertar_registro(data):
-    httpx.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}", headers=HEADERS, json=[data])
+    r = httpx.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}", headers=HEADERS, json=[data])
+    return r.status_code == 201, r.text
 
 def obtener_registros():
     r = httpx.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*&order=fecha.desc", headers=HEADERS)
@@ -270,8 +271,12 @@ if menu == "Registro de Checklist":
         if st.button("Guardar Registro"):
             nuevo = {"fecha": datetime.now().isoformat(), "nombre_ssr": nombre_ssr}
             nuevo.update(respuestas)
-            insertar_registro(nuevo)
-            st.success("✅ Registro guardado exitosamente.")
+            ok, resp = insertar_registro(nuevo)
+            if ok:
+                st.success("✅ Registro guardado exitosamente.")
+                st.experimental_rerun()
+            else:
+                st.error(f"❌ Error al guardar: {resp}")
 
 # --- Revisión ---
 elif menu == "Revisión de Avance":
@@ -310,11 +315,13 @@ elif menu == "Editar o Eliminar Registro":
             if st.button("❌ Eliminar este registro"):
                 eliminar_registro(ultimo["id"])
                 st.success("Registro eliminado correctamente.")
+                st.experimental_rerun()
             if st.checkbox("✏️ Editar este registro"):
                 ediciones = {f"item_{i+1}": st.checkbox(item, value=bool(ultimo[f"item_{i+1}"])) for i, item in enumerate(checklist_items)}
                 if st.button("Guardar cambios"):
                     actualizar_registro(ultimo["id"], ediciones)
                     st.success("Cambios guardados correctamente.")
+                    st.experimental_rerun()
 
 # --- Exportación ---
 st.sidebar.markdown("## 📥 Exportación de Informes")
