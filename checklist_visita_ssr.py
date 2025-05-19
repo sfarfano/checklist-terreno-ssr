@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from supabase import create_client, Client
+from supabase import create_client
 import io
 from fpdf import FPDF
+import asyncio
 
-# --- Configuración Supabase desde secrets con compatibilidad Streamlit Cloud ---
-@st.cache_resource
-def init_supabase():
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+# --- Configuración Supabase desde secrets (async compatible) ---
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-supabase: Client = init_supabase()
 
 # Lista fija de SSR
 lista_ssr = [
@@ -260,12 +260,12 @@ if menu == "Registro de Checklist":
         if st.button("Guardar Registro"):
             nuevo = {"fecha": datetime.now().isoformat(), "nombre_ssr": nombre_ssr}
             nuevo.update(respuestas)
-            supabase.table("checklist_ssr").insert(nuevo).execute()
+            asyncio.run(supabase.table("checklist_ssr").insert(nuevo).execute())
             st.success("✅ Registro guardado exitosamente en Supabase.")
 
 elif menu == "Revisión de Avance":
     st.title("📋 Revisión de Avance General")
-    response = supabase.table("checklist_ssr").select("*").execute()
+    response = asyncio.run(supabase.table("checklist_ssr").select("*").execute())
     if not response.data:
         st.warning("No hay registros disponibles aún.")
     else:
@@ -286,7 +286,7 @@ elif menu == "Revisión de Avance":
 
 elif menu == "Editar o Eliminar Registro":
     st.title("✏️ Editar o Eliminar Registro")
-    response = supabase.table("checklist_ssr").select("*").execute()
+    response = asyncio.run(supabase.table("checklist_ssr").select("*").execute())
     if not response.data:
         st.warning("No hay registros aún.")
     else:
@@ -299,7 +299,7 @@ elif menu == "Editar o Eliminar Registro":
             st.dataframe(pd.DataFrame([ultimo]))
 
             if st.button("❌ Eliminar este registro"):
-                supabase.table("checklist_ssr").delete().eq("id", ultimo["id"]).execute()
+                asyncio.run(supabase.table("checklist_ssr").delete().eq("id", ultimo["id"]).execute())
                 st.success("Registro eliminado correctamente.")
 
             if st.checkbox("✏️ Editar este registro"):
@@ -307,12 +307,12 @@ elif menu == "Editar o Eliminar Registro":
                 for clave, item in item_map.items():
                     ediciones[clave] = st.checkbox(item, value=bool(ultimo[clave]))
                 if st.button("Guardar cambios"):
-                    supabase.table("checklist_ssr").update(ediciones).eq("id", ultimo["id"]).execute()
+                    asyncio.run(supabase.table("checklist_ssr").update(ediciones).eq("id", ultimo["id"]).execute())
                     st.success("Cambios guardados correctamente.")
 
 # Exportar datos a Excel y PDF desde Supabase
 st.sidebar.markdown("## 📥 Exportación de Informes")
-response = supabase.table("checklist_ssr").select("*").execute()
+response = asyncio.run(supabase.table("checklist_ssr").select("*").execute())
 if response.data:
     df = pd.DataFrame(response.data)
     columnas_check = [col for col in df.columns if col.startswith("item_")]
