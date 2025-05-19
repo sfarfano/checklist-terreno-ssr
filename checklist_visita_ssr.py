@@ -1,15 +1,16 @@
+# checklist_ssr_app.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 import io
 from fpdf import FPDF
-import asyncio
 
-# --- Configuración Supabase desde secrets usando AsyncClient ---
+# --- Configuración Supabase desde secrets ---
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 # Lista fija de SSR
 lista_ssr = [
@@ -241,113 +242,109 @@ checklist_items = [
 # Mapa de columnas
 item_map = {f"item_{i+1}": item for i, item in enumerate(checklist_items)}
 
-async def main():
-    st.set_page_config(page_title="Checklist Terreno SSR", layout="centered")
-    menu = st.sidebar.selectbox("Menú", ["Registro de Checklist", "Revisión de Avance", "Editar o Eliminar Registro"])
+st.set_page_config(page_title="Checklist Terreno SSR", layout="centered")
+menu = st.sidebar.selectbox("Menú", ["Registro de Checklist", "Revisión de Avance", "Editar o Eliminar Registro"])
 
-    if menu == "Registro de Checklist":
-        st.title("✅ Registro de Checklist de Terreno")
-        nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", ["Selecciona un SSR..."] + lista_ssr)
+if menu == "Registro de Checklist":
+    st.title("✅ Registro de Checklist de Terreno")
+    nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", ["Selecciona un SSR..."] + lista_ssr)
 
-        if nombre_ssr != "Selecciona un SSR...":
-            respuestas = {}
-            st.subheader("Checklist de Actividades")
-            for clave, item in item_map.items():
-                respuestas[clave] = st.checkbox(item)
+    if nombre_ssr != "Selecciona un SSR...":
+        respuestas = {}
+        st.subheader("Checklist de Actividades")
+        for clave, item in item_map.items():
+            respuestas[clave] = st.checkbox(item)
 
-            if st.button("Guardar Registro"):
-                nuevo = {"fecha": datetime.now().isoformat(), "nombre_ssr": nombre_ssr}
-                nuevo.update(respuestas)
-                await supabase.table("checklist_ssr").insert(nuevo).execute()
-                st.success("✅ Registro guardado exitosamente en Supabase.")
+        if st.button("Guardar Registro"):
+            nuevo = {"fecha": datetime.now().isoformat(), "nombre_ssr": nombre_ssr}
+            nuevo.update(respuestas)
+            supabase.table("checklist_ssr").insert(nuevo).execute()
+            st.success("✅ Registro guardado exitosamente en Supabase.")
 
-    elif menu == "Revisión de Avance":
-        st.title("📋 Revisión de Avance General")
-        response = await supabase.table("checklist_ssr").select("*").execute()
-        if not response.data:
-            st.warning("No hay registros disponibles aún.")
-        else:
-            df = pd.DataFrame(response.data)
-            columnas_check = [col for col in df.columns if col.startswith("item_")]
-            resumen = df.groupby("nombre_ssr")[columnas_check].mean()
-            resumen["% Completado"] = resumen.mean(axis=1) * 100
-
-            st.subheader("Resumen por SSR")
-            st.dataframe(resumen[["% Completado"]].sort_values("% Completado", ascending=False))
-
-            ssr_sel = st.selectbox("Ver detalle de un SSR", df["nombre_ssr"].unique())
-            if ssr_sel:
-                st.subheader(f"Detalle Checklist: {ssr_sel}")
-                fila = df[df["nombre_ssr"] == ssr_sel].iloc[-1]
-                for clave, item in item_map.items():
-                    st.write(f"{item}: {'✅' if fila[clave] else '❌'}")
-
-    elif menu == "Editar o Eliminar Registro":
-        st.title("✏️ Editar o Eliminar Registro")
-        response = await supabase.table("checklist_ssr").select("*").execute()
-        if not response.data:
-            st.warning("No hay registros aún.")
-        else:
-            df = pd.DataFrame(response.data)
-            ssr_edit = st.selectbox("Selecciona un SSR", df["nombre_ssr"].unique())
-            registros = df[df["nombre_ssr"] == ssr_edit]
-            if not registros.empty:
-                ultimo = registros.iloc[-1]
-                st.write("Último registro:")
-                st.dataframe(pd.DataFrame([ultimo]))
-
-                if st.button("❌ Eliminar este registro"):
-                    await supabase.table("checklist_ssr").delete().eq("id", ultimo["id"]).execute()
-                    st.success("Registro eliminado correctamente.")
-
-                if st.checkbox("✏️ Editar este registro"):
-                    ediciones = {}
-                    for clave, item in item_map.items():
-                        ediciones[clave] = st.checkbox(item, value=bool(ultimo[clave]))
-                    if st.button("Guardar cambios"):
-                        await supabase.table("checklist_ssr").update(ediciones).eq("id", ultimo["id"]).execute()
-                        st.success("Cambios guardados correctamente.")
-
-    # Exportar datos a Excel y PDF desde Supabase
-    st.sidebar.markdown("## 📥 Exportación de Informes")
-    response = await supabase.table("checklist_ssr").select("*").execute()
-    if response.data:
+elif menu == "Revisión de Avance":
+    st.title("📋 Revisión de Avance General")
+    response = supabase.table("checklist_ssr").select("*").execute()
+    if not response.data:
+        st.warning("No hay registros disponibles aún.")
+    else:
         df = pd.DataFrame(response.data)
         columnas_check = [col for col in df.columns if col.startswith("item_")]
         resumen = df.groupby("nombre_ssr")[columnas_check].mean()
         resumen["% Completado"] = resumen.mean(axis=1) * 100
 
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            resumen[["% Completado"]].to_excel(writer, sheet_name='Resumen')
-            for ssr in df["nombre_ssr"].unique():
-                df[df["nombre_ssr"] == ssr].to_excel(writer, sheet_name=ssr[:31], index=False)
-        st.sidebar.download_button("📥 Descargar Excel completo", output.getvalue(), "checklist_detalle.xlsx")
+        st.subheader("Resumen por SSR")
+        st.dataframe(resumen[["% Completado"]].sort_values("% Completado", ascending=False))
 
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", "B", 14)
-        pdf.cell(0, 10, "Informe Completo Checklist SSR", ln=True)
+        ssr_sel = st.selectbox("Ver detalle de un SSR", df["nombre_ssr"].unique())
+        if ssr_sel:
+            st.subheader(f"Detalle Checklist: {ssr_sel}")
+            fila = df[df["nombre_ssr"] == ssr_sel].iloc[-1]
+            for clave, item in item_map.items():
+                st.write(f"{item}: {'✅' if fila[clave] else '❌'}")
+
+elif menu == "Editar o Eliminar Registro":
+    st.title("✏️ Editar o Eliminar Registro")
+    response = supabase.table("checklist_ssr").select("*").execute()
+    if not response.data:
+        st.warning("No hay registros aún.")
+    else:
+        df = pd.DataFrame(response.data)
+        ssr_edit = st.selectbox("Selecciona un SSR", df["nombre_ssr"].unique())
+        registros = df[df["nombre_ssr"] == ssr_edit]
+        if not registros.empty:
+            ultimo = registros.iloc[-1]
+            st.write("Último registro:")
+            st.dataframe(pd.DataFrame([ultimo]))
+
+            if st.button("❌ Eliminar este registro"):
+                supabase.table("checklist_ssr").delete().eq("id", ultimo["id"]).execute()
+                st.success("Registro eliminado correctamente.")
+
+            if st.checkbox("✏️ Editar este registro"):
+                ediciones = {}
+                for clave, item in item_map.items():
+                    ediciones[clave] = st.checkbox(item, value=bool(ultimo[clave]))
+                if st.button("Guardar cambios"):
+                    supabase.table("checklist_ssr").update(ediciones).eq("id", ultimo["id"]).execute()
+                    st.success("Cambios guardados correctamente.")
+
+# Exportar datos a Excel y PDF desde Supabase
+st.sidebar.markdown("## 📥 Exportación de Informes")
+response = supabase.table("checklist_ssr").select("*").execute()
+if response.data:
+    df = pd.DataFrame(response.data)
+    columnas_check = [col for col in df.columns if col.startswith("item_")]
+    resumen = df.groupby("nombre_ssr")[columnas_check].mean()
+    resumen["% Completado"] = resumen.mean(axis=1) * 100
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        resumen[["% Completado"]].to_excel(writer, sheet_name='Resumen')
+        for ssr in df["nombre_ssr"].unique():
+            df[df["nombre_ssr"] == ssr].to_excel(writer, sheet_name=ssr[:31], index=False)
+    st.sidebar.download_button("📥 Descargar Excel completo", output.getvalue(), "checklist_detalle.xlsx")
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, "Informe Completo Checklist SSR", ln=True)
+    pdf.set_font("Arial", "", 10)
+    pdf.ln(5)
+
+    for ssr in resumen.index:
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 8, f"{ssr} - {round(resumen.loc[ssr]['% Completado'], 1)}% Completado", ln=True)
         pdf.set_font("Arial", "", 10)
+        registros = df[df["nombre_ssr"] == ssr]
+        for idx, fila in registros.iterrows():
+            pdf.cell(0, 6, f"Fecha: {fila['fecha']}", ln=True)
+            for clave, item in item_map.items():
+                valor = 'SI' if fila[clave] else 'NO'
+                pdf.multi_cell(0, 5, f"{item}: {valor}")
+            pdf.ln(3)
         pdf.ln(5)
 
-        for ssr in resumen.index:
-            pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 8, f"{ssr} - {round(resumen.loc[ssr]['% Completado'], 1)}% Completado", ln=True)
-            pdf.set_font("Arial", "", 10)
-            registros = df[df["nombre_ssr"] == ssr]
-            for idx, fila in registros.iterrows():
-                pdf.cell(0, 6, f"Fecha: {fila['fecha']}", ln=True)
-                for clave, item in item_map.items():
-                    valor = 'SI' if fila[clave] else 'NO'
-                    pdf.multi_cell(0, 5, f"{item}: {valor}")
-                pdf.ln(3)
-            pdf.ln(5)
-
-        pdf_output = io.BytesIO(pdf.output(dest='S').encode('latin1', 'replace'))
-        st.sidebar.download_button("📄 Descargar PDF completo", data=pdf_output, file_name="checklist_completo.pdf")
-    else:
-        st.sidebar.warning("No hay registros para exportar.")
-
-# Ejecutar app
-asyncio.run(main())
+    pdf_output = io.BytesIO(pdf.output(dest='S').encode('latin1', 'replace'))
+    st.sidebar.download_button("📄 Descargar PDF completo", data=pdf_output, file_name="checklist_completo.pdf")
+else:
+    st.sidebar.warning("No hay registros para exportar.")
