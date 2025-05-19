@@ -15,11 +15,6 @@ HEADERS = {
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json"
 }
-# Lista fija de SSR
-lista_ssr = [
-    "CAPR CALETA TUBUL", "CAPR CALETA LAS PEÑAS", "CAPR RUMENA", "CAPR PELECO", "CAPR QUIDICO"
-    # ... (puedes completar la lista completa)
-]
 # Lista fija de SSR integrada al código
 lista_ssr = [
     "CAPR CALETA TUBUL",
