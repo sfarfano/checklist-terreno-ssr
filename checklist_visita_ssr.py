@@ -240,6 +240,13 @@ checklist_items = [
 item_map = {f"item_{i+1}": item for i, item in enumerate(checklist_items)}
 
 st.set_page_config(page_title="Checklist Terreno SSR", layout="centered")
+
+# Botón global para limpiar selección
+if st.sidebar.button("🔄 Limpiar selección"):
+    for key in list(st.session_state.keys()):
+        if key.startswith("ssr_") or key.endswith("_ssr_actual") or key.startswith("reg_") or key.startswith("edit_"):
+            del st.session_state[key]
+    st.experimental_rerun()
 menu = st.sidebar.selectbox("Menú", ["Registro de Checklist", "Revisión de Avance", "Editar o Eliminar Registro"])
 
 # --- Funciones REST ---
@@ -273,6 +280,12 @@ if menu == "Registro de Checklist":
         st.session_state.ssr_registro = "Selecciona un SSR..."
     nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", opciones, key="ssr_registro")
     if nombre_ssr != "Selecciona un SSR...":
+        # Limpiar los checkboxes si cambia el SSR seleccionado
+        if "registro_ssr_actual" not in st.session_state or st.session_state.registro_ssr_actual != nombre_ssr:
+            for i in range(len(checklist_items)):
+                st.session_state.pop(f"reg_{i}", None)
+            st.session_state.registro_ssr_actual = nombre_ssr
+
         respuestas = {f"item_{i+1}": st.checkbox(item, key=f"reg_{i}") for i, item in enumerate(checklist_items)}
         if st.button("Guardar Registro"):
             nuevo = {"fecha": datetime.now().isoformat(), "nombre_ssr": nombre_ssr}
@@ -298,6 +311,8 @@ elif menu == "Revisión de Avance":
         st.subheader("Resumen por SSR")
         st.dataframe(resumen[["% Completado"]].sort_values("% Completado", ascending=False))
 
+        if "revision_ssr_actual" not in st.session_state or st.session_state.revision_ssr_actual != st.session_state.ssr_revision:
+            st.session_state.revision_ssr_actual = st.session_state.ssr_revision
         ssr_sel = st.selectbox("Ver detalle de un SSR", df["nombre_ssr"].unique(), key="ssr_revision")
 
         if ssr_sel:
@@ -326,7 +341,15 @@ elif menu == "Editar o Eliminar Registro":
                 st.success("Registro eliminado correctamente.")
                 st.experimental_rerun()
             if st.checkbox("✏️ Editar este registro"):
-                ediciones = {f"item_{i+1}": st.checkbox(item, value=bool(ultimo[f"item_{i+1}"])) for i, item in enumerate(checklist_items)}
+                if "edicion_ssr_actual" not in st.session_state or st.session_state.edicion_ssr_actual != ssr_edit:
+                    for i in range(len(checklist_items)):
+                        st.session_state.pop(f"edit_{i}", None)
+                    st.session_state.edicion_ssr_actual = ssr_edit
+
+                ediciones = {
+                    f"item_{i+1}": st.checkbox(item, value=bool(ultimo[f"item_{i+1}"]), key=f"edit_{i}")
+                    for i, item in enumerate(checklist_items)
+                }
                 if st.button("Guardar cambios"):
                     actualizar_registro(ultimo["id"], ediciones)
                     st.success("Cambios guardados correctamente.")
