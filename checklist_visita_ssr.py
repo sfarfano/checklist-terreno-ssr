@@ -2,16 +2,19 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from supabase import create_client, Client
+import httpx
 import io
 from fpdf import FPDF
 
-# --- Configuración Supabase desde secrets ---
+# --- Configuración Supabase REST API ---
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
+SUPABASE_TABLE = "checklist_ssr"
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 # Lista fija de SSR
 lista_ssr = [
     "CAPR CALETA TUBUL", "CAPR CALETA LAS PEÑAS", "CAPR RUMENA", "CAPR PELECO", "CAPR QUIDICO"
@@ -239,42 +242,50 @@ checklist_items = [
     "En caso de que no se realizara vuelo dron, ¿se georreferenciaron los vértices de cada recinto y se midieron los cercos?"
     
 ]
-# Mapa de columnas
 item_map = {f"item_{i+1}": item for i, item in enumerate(checklist_items)}
 
 st.set_page_config(page_title="Checklist Terreno SSR", layout="centered")
 menu = st.sidebar.selectbox("Menú", ["Registro de Checklist", "Revisión de Avance", "Editar o Eliminar Registro"])
 
+# --- Funciones REST ---
+def insertar_registro(data):
+    httpx.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}", headers=HEADERS, json=[data])
+
+def obtener_registros():
+    r = httpx.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?select=*&order=fecha.desc", headers=HEADERS)
+    return r.json() if r.status_code == 200 else []
+
+def eliminar_registro(reg_id):
+    httpx.delete(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{reg_id}", headers=HEADERS)
+
+def actualizar_registro(reg_id, data):
+    httpx.patch(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}?id=eq.{reg_id}", headers=HEADERS, json=data)
+
+# --- Registro ---
 if menu == "Registro de Checklist":
     st.title("✅ Registro de Checklist de Terreno")
     nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", ["Selecciona un SSR..."] + lista_ssr)
-
     if nombre_ssr != "Selecciona un SSR...":
-        respuestas = {}
-        st.subheader("Checklist de Actividades")
-        for clave, item in item_map.items():
-            respuestas[clave] = st.checkbox(item)
-
+        respuestas = {f"item_{i+1}": st.checkbox(item) for i, item in enumerate(checklist_items)}
         if st.button("Guardar Registro"):
             nuevo = {"fecha": datetime.now().isoformat(), "nombre_ssr": nombre_ssr}
             nuevo.update(respuestas)
-            supabase.table("checklist_ssr").insert(nuevo).execute()
-            st.success("✅ Registro guardado exitosamente en Supabase.")
+            insertar_registro(nuevo)
+            st.success("✅ Registro guardado exitosamente.")
 
+# --- Revisión ---
 elif menu == "Revisión de Avance":
     st.title("📋 Revisión de Avance General")
-    response = supabase.table("checklist_ssr").select("*").execute()
-    if not response.data:
+    registros = obtener_registros()
+    if not registros:
         st.warning("No hay registros disponibles aún.")
     else:
-        df = pd.DataFrame(response.data)
+        df = pd.DataFrame(registros)
         columnas_check = [col for col in df.columns if col.startswith("item_")]
         resumen = df.groupby("nombre_ssr")[columnas_check].mean()
         resumen["% Completado"] = resumen.mean(axis=1) * 100
-
         st.subheader("Resumen por SSR")
         st.dataframe(resumen[["% Completado"]].sort_values("% Completado", ascending=False))
-
         ssr_sel = st.selectbox("Ver detalle de un SSR", df["nombre_ssr"].unique())
         if ssr_sel:
             st.subheader(f"Detalle Checklist: {ssr_sel}")
@@ -282,41 +293,37 @@ elif menu == "Revisión de Avance":
             for clave, item in item_map.items():
                 st.write(f"{item}: {'✅' if fila[clave] else '❌'}")
 
+# --- Edición o eliminación ---
 elif menu == "Editar o Eliminar Registro":
     st.title("✏️ Editar o Eliminar Registro")
-    response = supabase.table("checklist_ssr").select("*").execute()
-    if not response.data:
+    registros = obtener_registros()
+    if not registros:
         st.warning("No hay registros aún.")
     else:
-        df = pd.DataFrame(response.data)
+        df = pd.DataFrame(registros)
         ssr_edit = st.selectbox("Selecciona un SSR", df["nombre_ssr"].unique())
         registros = df[df["nombre_ssr"] == ssr_edit]
         if not registros.empty:
             ultimo = registros.iloc[-1]
             st.write("Último registro:")
             st.dataframe(pd.DataFrame([ultimo]))
-
             if st.button("❌ Eliminar este registro"):
-                supabase.table("checklist_ssr").delete().eq("id", ultimo["id"]).execute()
+                eliminar_registro(ultimo["id"])
                 st.success("Registro eliminado correctamente.")
-
             if st.checkbox("✏️ Editar este registro"):
-                ediciones = {}
-                for clave, item in item_map.items():
-                    ediciones[clave] = st.checkbox(item, value=bool(ultimo[clave]))
+                ediciones = {f"item_{i+1}": st.checkbox(item, value=bool(ultimo[f"item_{i+1}"])) for i, item in enumerate(checklist_items)}
                 if st.button("Guardar cambios"):
-                    supabase.table("checklist_ssr").update(ediciones).eq("id", ultimo["id"]).execute()
+                    actualizar_registro(ultimo["id"], ediciones)
                     st.success("Cambios guardados correctamente.")
 
-# Exportar datos a Excel y PDF desde Supabase
+# --- Exportación ---
 st.sidebar.markdown("## 📥 Exportación de Informes")
-response = supabase.table("checklist_ssr").select("*").execute()
-if response.data:
-    df = pd.DataFrame(response.data)
+registros = obtener_registros()
+if registros:
+    df = pd.DataFrame(registros)
     columnas_check = [col for col in df.columns if col.startswith("item_")]
     resumen = df.groupby("nombre_ssr")[columnas_check].mean()
     resumen["% Completado"] = resumen.mean(axis=1) * 100
-
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         resumen[["% Completado"]].to_excel(writer, sheet_name='Resumen')
@@ -330,7 +337,6 @@ if response.data:
     pdf.cell(0, 10, "Informe Completo Checklist SSR", ln=True)
     pdf.set_font("Arial", "", 10)
     pdf.ln(5)
-
     for ssr in resumen.index:
         pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 8, f"{ssr} - {round(resumen.loc[ssr]['% Completado'], 1)}% Completado", ln=True)
@@ -343,7 +349,6 @@ if response.data:
                 pdf.multi_cell(0, 5, f"{item}: {valor}")
             pdf.ln(3)
         pdf.ln(5)
-
     pdf_output = io.BytesIO(pdf.output(dest='S').encode('latin1', 'replace'))
     st.sidebar.download_button("📄 Descargar PDF completo", data=pdf_output, file_name="checklist_completo.pdf")
 else:
