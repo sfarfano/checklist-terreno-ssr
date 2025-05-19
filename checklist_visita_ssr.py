@@ -268,7 +268,11 @@ if "ssr_registro" not in st.session_state:
 # --- Registro ---
 if menu == "Registro de Checklist":
     st.title("✅ Registro de Checklist de Terreno")
-    nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", ["Selecciona un SSR..."] + lista_ssr, key="ssr_registro")
+   opciones = ["Selecciona un SSR..."] + lista_ssr
+if st.session_state.ssr_registro not in opciones:
+    st.session_state.ssr_registro = "Selecciona un SSR..."
+nombre_ssr = st.selectbox("Selecciona el Nombre del SSR", opciones, key="ssr_registro")
+
     if nombre_ssr != "Selecciona un SSR...":
         respuestas = {f"item_{i+1}": st.checkbox(item, key=f"reg_{i}") for i, item in enumerate(checklist_items)}
         if st.button("Guardar Registro"):
